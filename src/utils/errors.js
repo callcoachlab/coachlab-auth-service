@@ -1,0 +1,55 @@
+export function createAppError(message, statusCode, code) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  error.isAppError = true;
+  return error;
+}
+
+export const isAppError = (err) => err?.isAppError === true;
+
+export const ErrorCodes = {
+  // Auth errors
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  USER_NOT_FOUND: 'USER_NOT_FOUND',
+  USER_DISABLED: 'USER_DISABLED',
+  EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
+  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  WORKSPACE_ALREADY_EXISTS: 'WORKSPACE_ALREADY_EXISTS',
+  VERIFICATION_TOKEN_INVALID: 'VERIFICATION_TOKEN_INVALID',
+  PASSWORD_RESET_TOKEN_INVALID: 'PASSWORD_RESET_TOKEN_INVALID',
+  SETUP_TOKEN_INVALID: 'SETUP_TOKEN_INVALID',
+  INVITE_EXPIRED: 'INVITE_EXPIRED',
+  INVITE_NOT_FOUND: 'INVITE_NOT_FOUND',
+  INVITE_ALREADY_ACCEPTED: 'INVITE_ALREADY_ACCEPTED',
+  INVITE_REVOKED: 'INVITE_REVOKED',
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  FORBIDDEN: 'FORBIDDEN',
+  TOKEN_INVALID: 'TOKEN_INVALID',
+
+  // Validation errors
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  INVALID_EMAIL: 'INVALID_EMAIL',
+  WEAK_PASSWORD: 'WEAK_PASSWORD',
+  EMAIL_ALREADY_EXISTS: 'EMAIL_ALREADY_EXISTS',
+  INVITE_REQUIRES_TEAM: 'INVITE_REQUIRES_TEAM',
+
+  // Resource errors
+  WORKSPACE_NOT_FOUND: 'WORKSPACE_NOT_FOUND',
+  TEAM_NOT_FOUND: 'TEAM_NOT_FOUND',
+  USER_ALREADY_EXISTS: 'USER_ALREADY_EXISTS',
+
+  // Server errors
+  INTERNAL_SERVER_ERROR: 'INTERNAL_SERVER_ERROR',
+  DATABASE_ERROR: 'DATABASE_ERROR',
+};
+
+export function createErrorResponse(code, message) {
+  return {
+    success: false,
+    error: {
+      code,
+      message,
+    },
+  };
+}

@@ -1,0 +1,1152 @@
+openapi: 3.0.3
+info:
+  title: Call Coach Lab API
+  version: 0.1.0-M0
+  description: |
+    REST API for Call Coach Lab — AI-powered call coaching SaaS.
+
+    ## Authentication
+    Most endpoints require a Bearer access token (15-minute TTL) in the `Authorization` header.
+    A long-lived refresh token is stored in an httpOnly cookie and is rotated on every `/auth/refresh` call.
+
+    ## CSRF
+    All state-changing requests (POST/PATCH/DELETE) require a CSRF token. Flow:
+      1. Call `GET /csrf` — receive `csrfToken` in the JSON body and a `csrfCookie` cookie automatically.
+      2. Send subsequent state-changing requests with both the cookie (sent automatically by the browser) and the header `X-CSRF-Token: <csrfToken>`.
+
+    ## Error format
+    All errors follow the same shape:
+    ```json
+    { "success": false, "error": { "code": "ERROR_CODE", "message": "Human readable" } }
+    ```
+
+servers:
+  - url: http://15.207.18.201
+    description: EC2 (testing)
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Registration, login, password reset, invite acceptance
+  - name: CSRF
+    description: CSRF token issuance
+  - name: Me
+    description: Current user profile and password
+  - name: Workspaces
+    description: Workspace setup and management
+  - name: Teams
+    description: Team CRUD within a workspace
+  - name: Users
+    description: Workspace member management
+  - name: Invites
+    description: Workspace invitations
+  - name: Settings
+    description: Workspace permissions and settings
+  - name: Audit Logs
+    description: Workspace audit trail
+  - name: Internal
+    description: Service-to-service endpoints (M1/M2)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token from `/auth/login` response
+    setupBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: One-time setup token from `/auth/verify-email` (or `/auth/login` when status is `EMAIL_VERIFIED`)
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: CSRF token from `GET /csrf`. Required for all POST/PATCH/DELETE.
+    internalSecret:
+      type: http
+      scheme: bearer
+      description: Internal service secret (configured via INTERNAL_SECRET env var)
+
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { type: object }
+        meta: { type: object }
+
+    PaginatedMeta:
+      type: object
+      properties:
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 20 }
+        total: { type: integer, example: 87 }
+        hasMore: { type: boolean, example: true }
+
+    ErrorEnvelope:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - INVALID_CREDENTIALS
+                - USER_NOT_FOUND
+                - USER_DISABLED
+                - EMAIL_NOT_VERIFIED
+                - ACCOUNT_LOCKED
+                - WORKSPACE_ALREADY_EXISTS
+                - VERIFICATION_TOKEN_INVALID
+                - PASSWORD_RESET_TOKEN_INVALID
+                - SETUP_TOKEN_INVALID
+                - INVITE_EXPIRED
+                - INVITE_NOT_FOUND
+                - INVITE_ALREADY_ACCEPTED
+                - INVITE_REVOKED
+                - UNAUTHORIZED
+                - FORBIDDEN
+                - TOKEN_INVALID
+                - VALIDATION_ERROR
+                - INVALID_EMAIL
+                - WEAK_PASSWORD
+                - EMAIL_ALREADY_EXISTS
+                - INVITE_REQUIRES_TEAM
+                - WORKSPACE_NOT_FOUND
+                - TEAM_NOT_FOUND
+                - USER_ALREADY_EXISTS
+                - INTERNAL_SERVER_ERROR
+                - DATABASE_ERROR
+                - NOT_FOUND
+            message: { type: string }
+
+    Role:
+      type: string
+      enum: [ADMIN, MANAGER, AGENT]
+
+    UserStatus:
+      type: string
+      enum: [PENDING_VERIFICATION, EMAIL_VERIFIED, INVITED, ACTIVE, DISABLED]
+
+    InviteStatus:
+      type: string
+      enum: [PENDING, ACCEPTED, REVOKED]
+
+    IndustryType:
+      type: string
+      enum: [Dental, Skin, Hair, Chiro, Other]
+
+    User:
+      type: object
+      properties:
+        id: { type: string, example: "69fb5fae9f2eb6b84356be3b" }
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        teamIds:
+          type: array
+          items: { type: string }
+        status: { $ref: '#/components/schemas/UserStatus' }
+
+    Workspace:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        industryType: { $ref: '#/components/schemas/IndustryType' }
+        timezone: { type: string, example: "America/New_York" }
+        languagesEnabled:
+          type: array
+          items: { type: string }
+          example: [en]
+
+    Permissions:
+      type: object
+      properties:
+        managersCanEditScorecards: { type: boolean }
+        managersCanEditOutcomes: { type: boolean }
+        managersCanExportData: { type: boolean }
+        agentsCanViewOwnCallScores: { type: boolean }
+
+    Team:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    Invite:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        teamIds:
+          type: array
+          items: { type: string }
+        status: { $ref: '#/components/schemas/InviteStatus' }
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        invitedBy:
+          type: object
+          properties:
+            id: { type: string }
+            email: { type: string, format: email }
+            name: { type: string }
+
+    AuditLog:
+      type: object
+      properties:
+        id: { type: string }
+        actionType: { type: string, example: "TEAM_CREATED" }
+        entityType:
+          type: string
+          enum: [Workspace, User, Team, Invite, Auth]
+        entityId: { type: string }
+        actorUserId: { type: string }
+        metadata: { type: object }
+        createdAt: { type: string, format: date-time }
+
+    AuthSuccess:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            user: { $ref: '#/components/schemas/User' }
+            workspace: { $ref: '#/components/schemas/Workspace' }
+            auth:
+              type: object
+              properties:
+                accessToken: { type: string, description: "Short-lived JWT (15m)" }
+
+  responses:
+    Unauthorized:
+      description: Missing / invalid / expired access token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Forbidden:
+      description: Authenticated but lacks role or CSRF token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    ValidationError:
+      description: Request body / query failed validation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Conflict:
+      description: Conflict (duplicate resource)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  parameters:
+    Page:
+      in: query
+      name: page
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+paths:
+  # ─────────────────────── HEALTH & CSRF ───────────────────────
+  /health:
+    get:
+      tags: [CSRF]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  message: { type: string, example: "Server is healthy" }
+
+  /csrf:
+    get:
+      tags: [CSRF]
+      summary: Issue a CSRF token
+      description: |
+        Returns a CSRF token in the JSON body and sets a `csrfCookie` cookie.
+        Send the token in the `X-CSRF-Token` header on subsequent state-changing requests.
+      security: []
+      responses:
+        '200':
+          description: Token issued
+          headers:
+            Set-Cookie:
+              schema: { type: string, example: "csrfCookie=abc123; Path=/; HttpOnly" }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          csrfToken: { type: string }
+
+  # ─────────────────────── AUTH ───────────────────────
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new account (step 1 of onboarding)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 10, maxLength: 128 }
+      responses:
+        '201':
+          description: Account created — verification email sent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/verify-email:
+    post:
+      tags: [Auth]
+      summary: Verify email with token
+      description: Returns a one-time `setupToken` to use with `POST /workspaces/setup`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '200':
+          description: Email verified — setupToken issued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          setupToken: { type: string }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [Auth]
+      summary: Verify email (redirect-friendly variant of POST)
+      security: []
+      parameters:
+        - in: query
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Verified }
+
+  /auth/resend-verification:
+    post:
+      tags: [Auth]
+      summary: Resend verification email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200': { description: Email sent (or silently ignored to avoid enumeration) }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email + password
+      description: |
+        Sets `refreshToken` httpOnly cookie. Returns access token in response body.
+        If the user is `EMAIL_VERIFIED` but has no workspace yet, returns a `setupToken` instead of a full session.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Login successful
+          headers:
+            Set-Cookie:
+              schema: { type: string, example: "refreshToken=...; HttpOnly; SameSite=Lax; Max-Age=604800" }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSuccess' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '423':
+          description: Account locked (too many failed attempts)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout — invalidates current session
+      description: Sets `lastCredentialChangeAt` so existing access tokens fail.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate refresh token, get new access token
+      description: |
+        Reads `refreshToken` from cookie. Issues a new access token (15m) and rotates the refresh cookie.
+        The new refresh token is set as a cookie only — never returned in the response body.
+      security: []
+      responses:
+        '200':
+          description: New access token
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          accessToken: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request a password reset email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200': { description: Reset email sent (or silently ignored) }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Complete password reset with token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 10, maxLength: 128 }
+      responses:
+        '200': { description: Password reset successful }
+        '400': { $ref: '#/components/responses/ValidationError' }
+
+  /auth/accept-invite:
+    post:
+      tags: [Auth]
+      summary: Accept invite (creates account + joins workspace)
+      description: Public — invitee has no session. Token from email is the credential.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 10, maxLength: 128 }
+                name: { type: string, maxLength: 255 }
+      responses:
+        '200':
+          description: Invite accepted — full session issued
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSuccess' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '410':
+          description: Invite expired / revoked / already accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ─────────────────────── ME ───────────────────────
+  /me:
+    get:
+      tags: [Me]
+      summary: Get current user, workspace, permissions, and own teams
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current identity
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user: { $ref: '#/components/schemas/User' }
+                          workspace: { $ref: '#/components/schemas/Workspace' }
+                          permissions: { $ref: '#/components/schemas/Permissions' }
+                          teams:
+                            type: array
+                            items: { $ref: '#/components/schemas/Team' }
+                            description: Teams this user is a member of (empty for ADMIN/MANAGER)
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Me]
+      summary: Update own profile (name)
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /me/change-password:
+    post:
+      tags: [Me]
+      summary: Change own password
+      description: Invalidates all sessions on success — user must log in again.
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 10, maxLength: 128 }
+      responses:
+        '200':
+          description: Password changed (sessions invalidated)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ─────────────────────── WORKSPACES ───────────────────────
+  /workspaces/setup:
+    post:
+      tags: [Workspaces]
+      summary: Complete onboarding — create workspace
+      description: Requires a one-time `setupToken` issued by `/auth/verify-email` or `/auth/login` for `EMAIL_VERIFIED` users.
+      security:
+        - setupBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspaceName, industryType]
+              properties:
+                workspaceName: { type: string, maxLength: 64 }
+                industryType: { $ref: '#/components/schemas/IndustryType' }
+                timezone: { type: string, default: UTC }
+                languagesEnabled:
+                  type: array
+                  items: { type: string }
+                name: { type: string, maxLength: 255 }
+      responses:
+        '201':
+          description: Workspace created — full session returned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSuccess' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /workspaces/me:
+    get:
+      tags: [Workspaces]
+      summary: Get current workspace
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current workspace
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Workspace' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Workspaces]
+      summary: Update workspace (ADMIN only)
+      description: Rename workspace, change timezone, change enabled languages. Industry type is immutable.
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 64 }
+                timezone: { type: string }
+                languagesEnabled:
+                  type: array
+                  items: { type: string }
+                  minItems: 1
+      responses:
+        '200':
+          description: Workspace updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Workspace' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── TEAMS ───────────────────────
+  /teams:
+    get:
+      tags: [Teams]
+      summary: List teams in workspace
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated list of teams
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Team' }
+                      meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Teams]
+      summary: Create team (ADMIN/MANAGER)
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+      responses:
+        '201':
+          description: Team created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Team name already exists in workspace (case-insensitive)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /teams/{teamId}:
+    parameters:
+      - in: path
+        name: teamId
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Teams]
+      summary: Rename team (ADMIN/MANAGER)
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+      responses:
+        '200': { description: Team updated }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Teams]
+      summary: Delete team (ADMIN only)
+      description: Soft-deletes the team. Blocked if any AGENT would be left with zero teams.
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      responses:
+        '200': { description: Team deleted }
+        '400':
+          description: Deletion would orphan an AGENT
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── USERS ───────────────────────
+  /users:
+    get:
+      tags: [Users]
+      summary: List workspace members (ADMIN/MANAGER)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: role
+          schema: { $ref: '#/components/schemas/Role' }
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/UserStatus' }
+        - in: query
+          name: teamId
+          schema: { type: string, description: "Filter by team membership (24-char ObjectId)" }
+      responses:
+        '200':
+          description: Paginated list of users
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/User' }
+                      meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /users/{userId}:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Users]
+      summary: Update user role / teams / status
+      description: |
+        - MANAGER can only edit AGENTs.
+        - ADMIN can edit anyone.
+        - Cannot demote the last ADMIN.
+        - Cannot edit yourself's role/status.
+        - Setting `status: DISABLED` invalidates all of that user's tokens.
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                role: { $ref: '#/components/schemas/Role' }
+                teamIds:
+                  type: array
+                  items: { type: string }
+                status:
+                  type: string
+                  enum: [ACTIVE, DISABLED]
+      responses:
+        '200': { description: User updated }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{userId}/disable:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Users]
+      summary: Disable user
+      description: Sets status DISABLED + invalidates tokens. Last-admin protection applies.
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      responses:
+        '200': { description: User disabled }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{userId}/enable:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Users]
+      summary: Re-enable user
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      responses:
+        '200': { description: User enabled }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── INVITES ───────────────────────
+  /invites/preview:
+    get:
+      tags: [Invites]
+      summary: Preview invite (public — for the accept-invite UI)
+      description: Lets the frontend render "You've been invited to {workspace}" before submitting.
+      security: []
+      parameters:
+        - in: query
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Invite preview
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          email: { type: string, format: email }
+                          role: { $ref: '#/components/schemas/Role' }
+                          workspaceName: { type: string }
+                          alreadyHasAccount: { type: boolean }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: Invite expired / revoked / accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /invites:
+    post:
+      tags: [Invites]
+      summary: Send invites (bulk) — ADMIN/MANAGER
+      description: |
+        Sends one or more invitation emails. Per-invite rules:
+          - AGENT must have `teamIds` length ≥ 1
+          - ADMIN / MANAGER must have `teamIds` length == 0
+        Tokens are emailed only — never returned in the response.
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invites]
+              properties:
+                invites:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [email, role, teamIds]
+                    properties:
+                      email: { type: string, format: email }
+                      role: { $ref: '#/components/schemas/Role' }
+                      teamIds:
+                        type: array
+                        items: { type: string }
+      responses:
+        '201':
+          description: Invites created and emails dispatched
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [Invites]
+      summary: List invites — ADMIN/MANAGER
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/InviteStatus' }
+      responses:
+        '200':
+          description: Paginated list of invites
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Invite' }
+                      meta: { $ref: '#/components/schemas/PaginatedMeta' }
+
+  /invites/{inviteId}/revoke:
+    parameters:
+      - in: path
+        name: inviteId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Invites]
+      summary: Revoke a pending invite (ADMIN/MANAGER)
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      responses:
+        '200': { description: Invite revoked }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /invites/{inviteId}/resend:
+    parameters:
+      - in: path
+        name: inviteId
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Invites]
+      summary: Resend invite email (rotates token)
+      description: Capped at 5 resends per invite.
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      responses:
+        '200': { description: Invite resent }
+        '400':
+          description: Resend cap exceeded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── SETTINGS ───────────────────────
+  /settings:
+    get:
+      tags: [Settings]
+      summary: Get workspace settings
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          permissions: { $ref: '#/components/schemas/Permissions' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /settings/permissions:
+    patch:
+      tags: [Settings]
+      summary: Update permission toggles (ADMIN only)
+      security:
+        - bearerAuth: []
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Permissions' }
+      responses:
+        '200': { description: Permissions updated }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ─────────────────────── AUDIT LOGS ───────────────────────
+  /audit-logs:
+    get:
+      tags: [Audit Logs]
+      summary: List audit logs (ADMIN/MANAGER)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: actionType
+          schema: { type: string, example: "TEAM_CREATED" }
+      responses:
+        '200':
+          description: Paginated audit log
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuditLog' }
+                      meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ─────────────────────── INTERNAL ───────────────────────
+  /internal/calls/upsert:
+    post:
+      tags: [Internal]
+      summary: Upsert a call (M1 ingestion service only)
+      description: Authenticates with `INTERNAL_SECRET` Bearer token. Not for frontend use.
+      security:
+        - internalSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Call payload (see internalCallController for fields)
+      responses:
+        '200': { description: Call upserted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
