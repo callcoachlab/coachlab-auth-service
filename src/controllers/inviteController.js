@@ -146,6 +146,7 @@ export async function createInvites(req, res, next) {
         teamIds: invite.teamIds,
         status: invite.status,
         expiresAt: invite.expiresAt,
+        ...(process.env.NODE_ENV !== 'production' && { _devOnly_inviteToken: rawToken }),
       });
     }
 
@@ -300,6 +301,7 @@ export async function resendInvite(req, res, next) {
           status: invite.status,
           expiresAt: invite.expiresAt,
           resendCount: invite.resendCount,
+          ...(process.env.NODE_ENV !== 'production' && { _devOnly_inviteToken: rawToken }),
         },
       })
     );

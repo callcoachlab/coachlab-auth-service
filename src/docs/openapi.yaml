@@ -333,7 +333,17 @@ paths:
           description: Account created — verification email sent
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          _devOnly_verificationToken:
+                            type: string
+                            description: "DEV ONLY — token returned directly when NODE_ENV!=production so frontend can test without email access. Never present in production."
         '400': { $ref: '#/components/responses/ValidationError' }
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
@@ -396,7 +406,22 @@ paths:
               properties:
                 email: { type: string, format: email }
       responses:
-        '200': { description: Email sent (or silently ignored to avoid enumeration) }
+        '200':
+          description: Email sent (or silently ignored to avoid enumeration)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string }
+                          _devOnly_verificationToken:
+                            type: string
+                            description: "DEV ONLY (NODE_ENV!=production) — only present when the email actually mapped to a pending-verification user. Never present in production."
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /auth/login:
@@ -490,7 +515,22 @@ paths:
               properties:
                 email: { type: string, format: email }
       responses:
-        '200': { description: Reset email sent (or silently ignored) }
+        '200':
+          description: Reset email sent (or silently ignored)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string }
+                          _devOnly_resetToken:
+                            type: string
+                            description: "DEV ONLY (NODE_ENV!=production) — only present when the email actually mapped to a real user with a password. Never present in production."
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /auth/reset-password:
@@ -994,7 +1034,31 @@ paths:
           description: Invites created and emails dispatched
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          count: { type: integer }
+                          invites:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id: { type: string }
+                                email: { type: string, format: email }
+                                role: { $ref: '#/components/schemas/Role' }
+                                teamIds:
+                                  type: array
+                                  items: { type: string }
+                                status: { $ref: '#/components/schemas/InviteStatus' }
+                                expiresAt: { type: string, format: date-time }
+                                _devOnly_inviteToken:
+                                  type: string
+                                  description: "DEV ONLY (NODE_ENV!=production) — raw invite token returned per invite so frontend can test without email access. Never present in production."
         '400': { $ref: '#/components/responses/ValidationError' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -1055,7 +1119,30 @@ paths:
         - bearerAuth: []
         - csrfHeader: []
       responses:
-        '200': { description: Invite resent }
+        '200':
+          description: Invite resent
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          invite:
+                            type: object
+                            properties:
+                              id: { type: string }
+                              email: { type: string, format: email }
+                              role: { $ref: '#/components/schemas/Role' }
+                              status: { $ref: '#/components/schemas/InviteStatus' }
+                              expiresAt: { type: string, format: date-time }
+                              resendCount: { type: integer }
+                              _devOnly_inviteToken:
+                                type: string
+                                description: "DEV ONLY (NODE_ENV!=production) — newly rotated invite token. Never present in production."
         '400':
           description: Resend cap exceeded
           content:
