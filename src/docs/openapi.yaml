@@ -1219,12 +1219,18 @@ paths:
                       meta: { $ref: '#/components/schemas/PaginatedMeta' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
-  # ─────────────────────── INTERNAL ───────────────────────
+  # ─────────────────────── INTERNAL (M1 + AI service only) ───────────────────────
+  # All routes require `Authorization: Bearer <INTERNAL_SECRET>` AND `workspaceId`
+  # in the request body or query string. Not exposed to the frontend.
+
   /internal/calls/upsert:
     post:
       tags: [Internal]
-      summary: Upsert a call (M1 ingestion service only)
-      description: Authenticates with `INTERNAL_SECRET` Bearer token. Not for frontend use.
+      summary: Upsert a call (M1 ingestion → M0)
+      description: |
+        Idempotent on `m1_instance_id`. Auto-creates Contact by normalized phone
+        (E.164). Used by M1 after each successful ingest from Upload+CSV /
+        Exotel / Twilio.
       security:
         - internalSecret: []
       requestBody:
@@ -1233,7 +1239,189 @@ paths:
           application/json:
             schema:
               type: object
-              description: Call payload (see internalCallController for fields)
+              required: [workspaceId, m1_instance_id, phone_normalized, agent_id, call_datetime]
+              properties:
+                workspaceId: { type: string }
+                m1_instance_id: { type: string, description: "Idempotency key from M1" }
+                m1_job_id: { type: string }
+                phone_normalized: { type: string, pattern: '^\+\d{1,15}$', example: '+919876543210' }
+                agent_id: { type: string, description: "M0 User._id (or null if Unassigned)" }
+                external_agent_id: { type: string, description: "Telephony extension/SID, when known" }
+                call_datetime: { type: string, format: date-time }
+                call_type: { type: string, enum: [inbound, outbound], default: inbound }
+                audio_url: { type: string, description: "S3 URL or other accessible location" }
+                call_duration_seconds: { type: integer }
+                caller_number: { type: string }
+                raw_channel: { type: string }
+                raw_campaign: { type: string }
+                raw_medium: { type: string }
+                raw_source: { type: string }
+                notes: { type: string }
+                scorecard_name: { type: string }
       responses:
-        '200': { description: Call upserted }
+        '201': { description: Call created }
+        '200': { description: Call updated (idempotent) }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /internal/calls/{callId}/result:
+    post:
+      tags: [Internal]
+      summary: Submit AI scoring result back to M0 (AI service → M0)
+      description: |
+        Posted by the AI scoring service after transcription + scoring + flag
+        detection finishes. M0 stores the blob in `Call.metadata` and updates
+        `call_state`. Idempotent — safe to retry.
+      security:
+        - internalSecret: []
+      parameters:
+        - in: path
+          name: callId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspaceId, status]
+              properties:
+                workspaceId: { type: string }
+                status:
+                  type: string
+                  enum: [EVALUATED, FAILED, NEEDS_REVIEW]
+                transcript:
+                  type: object
+                  description: "Free-form — schema owned by AI team. M0 stores as-is."
+                score:
+                  type: object
+                  description: "Free-form — schema owned by AI team."
+                flags:
+                  type: array
+                  items: { type: object }
+                failureReason:
+                  type: string
+                  description: "Set when status=FAILED"
+      responses:
+        '200': { description: Result stored }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Call not found in this workspace }
+
+  /internal/agents:
+    get:
+      tags: [Internal]
+      summary: Lookup agent (Exotel/Twilio mapping fallback)
+      description: |
+        M1 calls this when the integration provides only an extension, email,
+        or name — to resolve to a real M0 User. If no match, M1 ingests as
+        "Unassigned" and the manager maps later (per v1 bible Phase 6.B).
+      security:
+        - internalSecret: []
+      parameters:
+        - in: query
+          name: workspaceId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: email
+          schema: { type: string, format: email }
+        - in: query
+          name: externalAgentId
+          schema: { type: string }
+        - in: query
+          name: name
+          schema: { type: string }
+      responses:
+        '200':
+          description: Lookup result (may be empty)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      matchedBy:
+                        type: string
+                        enum: [email, externalAgentId, name, none]
+                      agents:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            email: { type: string }
+                            name: { type: string }
+                            role: { type: string }
+                            teamIds: { type: array, items: { type: string } }
+                            status: { type: string }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /internal/scorecards:
+    get:
+      tags: [Internal]
+      summary: List published scorecards for a workspace
+      description: |
+        M1 calls this to pick which scorecard to attach to a Call by call type.
+        Returns only published scorecards (drafts are excluded).
+      security:
+        - internalSecret: []
+      parameters:
+        - in: query
+          name: workspaceId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: callType
+          schema: { type: string, example: 'inbound' }
+      responses:
+        '200':
+          description: Scorecard list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      scorecards:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            name: { type: string }
+                            callType: { type: string }
+                            isPublished: { type: boolean }
+                            updatedAt: { type: string, format: date-time }
+
+  /internal/scorecards/{scorecardId}:
+    get:
+      tags: [Internal]
+      summary: Fetch full scorecard definition
+      description: AI service calls this when dequeuing a scoring job to read sections + criteria + thresholds.
+      security:
+        - internalSecret: []
+      parameters:
+        - in: path
+          name: scorecardId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: workspaceId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Scorecard definition
+        '404':
+          description: Scorecard not found in this workspace
         '401': { $ref: '#/components/responses/Unauthorized' }

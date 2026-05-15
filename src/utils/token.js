@@ -3,12 +3,14 @@ import crypto from 'crypto';
 import { config } from '../config/index.js';
 import { RefreshToken } from '../models/RefreshToken.js';
 
-export async function generateAccessToken(userId, workspaceId) {
+export async function generateAccessToken(userId, workspaceId, role = null) {
   const payload = {
     userId,
     workspaceId,
     scope: 'app',
   };
+  // Role is optional so unverified accounts (no workspace yet) still get tokens.
+  if (role) payload.role = role;
 
   return jwt.sign(payload, config.jwt.accessSecret, {
     expiresIn: config.jwt.accessExpiry,

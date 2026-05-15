@@ -43,7 +43,9 @@ export async function setupWorkspace(req, res, next) {
       settings: {
         permissions: {
           managersCanEditScorecards: true,
+          managersCanPublishScorecards: false,
           managersCanEditOutcomes: true,
+          managersCanManageIntegrations: false,
           managersCanExportData: true,
           agentsCanViewOwnCallScores: true,
         },
@@ -68,7 +70,8 @@ export async function setupWorkspace(req, res, next) {
       metadata: { industryType, timezone: workspace.timezone },
     });
 
-    const accessToken = await generateAccessToken(user._id, workspace._id);
+    // user.role is set to ADMIN inside this controller before the token is issued.
+    const accessToken = await generateAccessToken(user._id, workspace._id, user.role);
     const refreshToken = await generateRefreshToken(user._id);
 
     res.cookie('refreshToken', refreshToken, refreshCookieOptions());

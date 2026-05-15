@@ -99,6 +99,8 @@ export async function getUsers(req, res, next) {
       role: user.role,
       teamIds: user.teamIds,
       status: user.status,
+      phone: user.phone || null,
+      externalAgentId: user.externalAgentId || null,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
     }));
@@ -112,7 +114,7 @@ export async function getUsers(req, res, next) {
 export async function updateUser(req, res, next) {
   try {
     const { userId } = req.params;
-    const { role, teamIds, status } = req.validatedData;
+    const { role, teamIds, status, phone, externalAgentId } = req.validatedData;
 
     if (!OBJECT_ID_RE.test(userId)) {
       throw createAppError('Invalid user ID format', 400, ErrorCodes.VALIDATION_ERROR);
@@ -200,6 +202,18 @@ export async function updateUser(req, res, next) {
       user.status = status;
     }
 
+    if (phone !== undefined && phone !== user.phone) {
+      changes.previousPhone = user.phone;
+      changes.newPhone = phone;
+      user.phone = phone;
+    }
+
+    if (externalAgentId !== undefined && externalAgentId !== user.externalAgentId) {
+      changes.previousExternalAgentId = user.externalAgentId;
+      changes.newExternalAgentId = externalAgentId;
+      user.externalAgentId = externalAgentId;
+    }
+
     await user.save();
 
     let actionType = 'USER_UPDATED';
@@ -226,6 +240,8 @@ export async function updateUser(req, res, next) {
         role: user.role,
         teamIds: user.teamIds,
         status: user.status,
+        phone: user.phone,
+        externalAgentId: user.externalAgentId,
         updatedAt: user.updatedAt,
       })
     );

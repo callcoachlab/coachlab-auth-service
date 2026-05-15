@@ -408,10 +408,7 @@ export async function login(req, res, next) {
     user.lastLoginAt = new Date();
     await user.save();
 
-
-    const accessToken = await generateAccessToken(user._id, user.workspaceId);
-    console.log("user id and workspace id-");
-    console.log(user._id,user.workspaceId);
+    const accessToken = await generateAccessToken(user._id, user.workspaceId, user.role);
     const refreshToken = await generateRefreshToken(user._id);
 
     await logAuditEvent({
@@ -510,7 +507,7 @@ export async function refresh(req, res, next) {
       );
     }
 
-    const newAccessToken = await generateAccessToken(user._id, user.workspaceId);
+    const newAccessToken = await generateAccessToken(user._id, user.workspaceId, user.role);
     const newRefreshToken = await generateRefreshToken(user._id);
 
     res.cookie('refreshToken', newRefreshToken, refreshCookieOptions());
@@ -723,7 +720,7 @@ export async function acceptInvite(req, res, next) {
       metadata: { email: invite.email, role: invite.role },
     });
 
-    const accessToken = await generateAccessToken(user._id, user.workspaceId);
+    const accessToken = await generateAccessToken(user._id, user.workspaceId, user.role);
     const refreshToken = await generateRefreshToken(user._id);
 
     res.cookie('refreshToken', refreshToken, refreshCookieOptions());

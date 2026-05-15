@@ -103,15 +103,33 @@ export const updateUserSchema = z
     role: z.enum(['ADMIN', 'MANAGER', 'AGENT']).optional(),
     teamIds: z.array(z.string().min(1)).optional(),
     status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+    // E.164 phone (e.g. +14155552671). Used by Twilio outbound to bridge calls.
+    phone: z
+      .string()
+      .regex(/^\+[1-9]\d{1,14}$/, 'phone must be in E.164 format (e.g. +14155552671)')
+      .nullable()
+      .optional(),
+    // Stable handle used by CSV ingestion to resolve external_agent_id rows.
+    externalAgentId: z.string().min(1).max(64).nullable().optional(),
   })
-  .refine((d) => d.role !== undefined || d.teamIds !== undefined || d.status !== undefined, {
-    message: 'At least one field (role, teamIds, status) must be provided',
-  });
+  .refine(
+    (d) =>
+      d.role !== undefined ||
+      d.teamIds !== undefined ||
+      d.status !== undefined ||
+      d.phone !== undefined ||
+      d.externalAgentId !== undefined,
+    {
+      message: 'At least one field (role, teamIds, status, phone, externalAgentId) must be provided',
+    }
+  );
 
 // Settings validation
 export const updatePermissionsSchema = z.object({
   managersCanEditScorecards: z.boolean().optional(),
+  managersCanPublishScorecards: z.boolean().optional(),
   managersCanEditOutcomes: z.boolean().optional(),
+  managersCanManageIntegrations: z.boolean().optional(),
   managersCanExportData: z.boolean().optional(),
   agentsCanViewOwnCallScores: z.boolean().optional(),
 });

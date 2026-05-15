@@ -24,7 +24,9 @@ const workspaceSchema = new mongoose.Schema(
     settings: {
       permissions: {
         managersCanEditScorecards: { type: Boolean, default: true },
+        managersCanPublishScorecards: { type: Boolean, default: false },
         managersCanEditOutcomes: { type: Boolean, default: true },
+        managersCanManageIntegrations: { type: Boolean, default: false },
         managersCanExportData: { type: Boolean, default: true },
         agentsCanViewOwnCallScores: { type: Boolean, default: true },
       },

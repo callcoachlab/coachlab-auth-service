@@ -4,6 +4,13 @@ import {
   getMyWorkspace,
   updateMyWorkspace,
 } from '../controllers/workspaceController.js';
+import {
+  createScorecard,
+  listScorecards,
+  getScorecard,
+  updateScorecard,
+  deleteScorecard,
+} from '../controllers/scorecardController.js';
 import { validateRequest } from '../middleware/validation.js';
 import { authMiddleware, requireRole, workspaceMiddleware } from '../middleware/auth.js';
 import { csrfProtection } from '../middleware/csrf.js';
@@ -34,6 +41,46 @@ router.patch(
   csrfProtection,
   validateRequest(updateWorkspaceSchema),
   asyncHandler(updateMyWorkspace)
+);
+
+// ---- Scorecards (workspace-scoped) ----
+// List: any authenticated workspace member can read.
+// Create / update / delete: ADMIN or MANAGER only.
+router.get(
+  '/me/scorecards',
+  authMiddleware,
+  workspaceMiddleware,
+  asyncHandler(listScorecards)
+);
+router.get(
+  '/me/scorecards/:scorecardId',
+  authMiddleware,
+  workspaceMiddleware,
+  asyncHandler(getScorecard)
+);
+router.post(
+  '/me/scorecards',
+  authMiddleware,
+  workspaceMiddleware,
+  requireRole('ADMIN', 'MANAGER'),
+  csrfProtection,
+  asyncHandler(createScorecard)
+);
+router.patch(
+  '/me/scorecards/:scorecardId',
+  authMiddleware,
+  workspaceMiddleware,
+  requireRole('ADMIN', 'MANAGER'),
+  csrfProtection,
+  asyncHandler(updateScorecard)
+);
+router.delete(
+  '/me/scorecards/:scorecardId',
+  authMiddleware,
+  workspaceMiddleware,
+  requireRole('ADMIN', 'MANAGER'),
+  csrfProtection,
+  asyncHandler(deleteScorecard)
 );
 
 export default router;
