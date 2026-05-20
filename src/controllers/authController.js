@@ -136,7 +136,6 @@ export async function register(req, res, next) {
       // Two valid sub-cases:
       //  1. Already verified / active — silently do nothing (don't leak account existence).
       //  2. Still pending verification — re-issue the link (helps users who lost the email).
-      let devToken = null;
       if (existing.status === 'PENDING_VERIFICATION') {
         const token = generateRandomToken();
         existing.emailVerificationTokenHash = hashToken(token);
@@ -148,13 +147,6 @@ export async function register(req, res, next) {
           to: existing.email,
           name: existing.name,
           verifyUrl: buildVerifyUrl(token),
-        });
-        devToken = token;
-      }
-      if (!isProd && devToken) {
-        return res.json({
-          ...genericResponse,
-          data: { ...genericResponse.data, _devOnly_verificationToken: devToken },
         });
       }
       return res.json(genericResponse);
@@ -193,14 +185,7 @@ export async function register(req, res, next) {
       verifyUrl: buildVerifyUrl(verificationToken),
     });
 
-    const responseData = !isProd
-      ? {
-          ...genericResponse,
-          data: { ...genericResponse.data, _devOnly_verificationToken: verificationToken },
-        }
-      : genericResponse;
-
-    res.json(responseData);
+    res.json(genericResponse);
   } catch (error) {
     next(error);
   }
@@ -318,11 +303,7 @@ export async function resendVerification(req, res, next) {
       metadata: { email: user.email, ipAddress: req.ip },
     });
 
-    res.json(
-      !isProd
-        ? { ...genericResponse, data: { ...genericResponse.data, _devOnly_verificationToken: token } }
-        : genericResponse
-    );
+    res.json(genericResponse);
   } catch (error) {
     next(error);
   }
@@ -568,11 +549,7 @@ export async function forgotPassword(req, res, next) {
       metadata: { ipAddress: req.ip },
     });
 
-    res.json(
-      !isProd
-        ? { ...genericResponse, data: { ...genericResponse.data, _devOnly_resetToken: token } }
-        : genericResponse
-    );
+    res.json(genericResponse);
   } catch (error) {
     next(error);
   }
