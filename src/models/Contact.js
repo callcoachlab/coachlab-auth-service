@@ -45,7 +45,8 @@ const contactSchema = new mongoose.Schema(
     },
     attribution_source: {
       type: String,
-      enum: ['MANUAL', 'M1_IMPORT', 'AUTOMATIC_MATCH'],
+      // null is valid (contact created before any attribution decision)
+      enum: ['MANUAL', 'M1_IMPORT', 'AUTOMATIC_MATCH', null],
       default: null,
     },
     last_updated_by_m1_at: {
@@ -104,7 +105,8 @@ contactSchema.statics.findOrCreateFromCallUpsert = async function (
       return { contact, created: false };
     }
 
-    // Create new contact
+    // Create new contact. attribution_source='M1_IMPORT' marks origin —
+    // can be promoted to AUTOMATIC_MATCH or MANUAL later by attribution logic.
     contact = await this.create({
       workspaceId,
       phone: contactData.phone || phone_e164,
@@ -114,6 +116,7 @@ contactSchema.statics.findOrCreateFromCallUpsert = async function (
       raw_campaign: contactData.raw_campaign || null,
       raw_medium: contactData.raw_medium || null,
       raw_source: contactData.raw_source || null,
+      attribution_source: 'M1_IMPORT',
       last_updated_by_m1_at: new Date(),
     });
 

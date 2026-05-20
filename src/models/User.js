@@ -57,6 +57,40 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
+    // External agent identifier from telephony providers (Exotel extension,
+    // Twilio agent SID, etc). Used by M1's agent-mapping fallback to resolve
+    // ingested calls to the correct M0 user. Optional — set by an admin via
+    // the agent-mapping table per the v1 bible (Phase 6.B).
+    externalAgentId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
+    // Agent's real mobile number in E.164 format (e.g. "+919876543210").
+    // Used by M1 to bridge Twilio outbound calls — Twilio dials this number
+    // to connect the agent to the customer. Optional, only meaningful for
+    // AGENT-role users. Format is validated on write but not enforced as
+    // unique (multiple agents can share a number e.g. for shadowing).
+    phone: {
+      type: String,
+      default: null,
+      validate: {
+        validator: (v) => v == null || /^\+[1-9]\d{1,14}$/.test(v),
+        message: 'phone must be in E.164 format (e.g. +14155552671)',
+      },
+    },
+
+    // MyOperator user UUID (their internal handle for the agent).
+    // Used by M1 to place outbound calls via MyOperator's OBD Type 1 User
+    // Dialer — MyOperator routes the call to this user account, which then
+    // calls the customer. Sourced from the MyOperator panel.
+    myoperatorUserId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
     // Password
     passwordHash: {
       type: String,

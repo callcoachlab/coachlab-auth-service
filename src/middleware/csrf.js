@@ -54,8 +54,9 @@ export function csrfTokenEndpoint(req, res) {
     res.cookie('csrf-token', cookieId, {
       httpOnly: true,                      // Browser sends it automatically; JS never needs to read it
       secure: isProd,                      // HTTPS only in production
-      sameSite: isProd ? 'strict' : 'lax', // Strict in prod; lax allows local dev over HTTP
+      sameSite: isProd ? 'none' : 'lax',   // None for cross-domain (frontend ≠ backend domain); Lax in dev
       maxAge: 60 * 60 * 1000,             // 1 hour
+      path: '/auth',                       // Only needed for /auth/refresh, scoped tightly
     });
 
     res.json({

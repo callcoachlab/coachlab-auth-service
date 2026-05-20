@@ -104,7 +104,7 @@ export async function changePassword(req, res, next) {
     });
 
     // Clear refresh cookie — the access token is now invalid via lastCredentialChangeAt.
-    res.clearCookie('refreshToken', { path: '/' });
+    res.clearCookie('refreshToken', { path: '/auth' });
 
     res.json(successResponse({ message: 'Password changed. Please log in again.' }));
   } catch (error) {

@@ -7,13 +7,15 @@ import { generateAccessToken, generateRefreshToken } from '../utils/token.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 
+// Mirrors authController.refreshCookieOptions. Production uses SameSite=None
+// because the frontend is on a different registrable domain than the backend.
 function refreshCookieOptions() {
   return {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? 'strict' : 'lax',
+    sameSite: isProd ? 'none' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
+    path: '/auth',
   };
 }
 
@@ -43,7 +45,9 @@ export async function setupWorkspace(req, res, next) {
       settings: {
         permissions: {
           managersCanEditScorecards: true,
+          managersCanPublishScorecards: false,
           managersCanEditOutcomes: true,
+          managersCanManageIntegrations: false,
           managersCanExportData: true,
           agentsCanViewOwnCallScores: true,
         },
@@ -68,7 +72,8 @@ export async function setupWorkspace(req, res, next) {
       metadata: { industryType, timezone: workspace.timezone },
     });
 
-    const accessToken = await generateAccessToken(user._id, workspace._id);
+    // user.role is set to ADMIN inside this controller before the token is issued.
+    const accessToken = await generateAccessToken(user._id, workspace._id, user.role);
     const refreshToken = await generateRefreshToken(user._id);
 
     res.cookie('refreshToken', refreshToken, refreshCookieOptions());

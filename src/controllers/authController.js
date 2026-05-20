@@ -23,13 +23,25 @@ import {
 const isProd = process.env.NODE_ENV === 'production';
 
 // Cookie options for the long-lived refresh token.
+//
+// Production: frontend on a different registrable domain than backend
+//   (e.g. frontend on xyz.com, backend on thebotmate.com).
+//   SameSite=None + Secure is required for the browser to send the cookie
+//   on cross-site requests. Secure=true requires HTTPS.
+//
+// Development: localhost only. SameSite=Lax avoids breaking dev tooling
+//   that opens links from external pages.
+//
+// path: '/auth' — scopes the cookie to auth routes only. The refresh token
+//   is only ever read by /auth/refresh and /auth/logout; sending it on every
+//   API call (path: '/') widens the exposure surface unnecessarily.
 function refreshCookieOptions() {
   return {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? 'strict' : 'lax',
+    sameSite: isProd ? 'none' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
+    path: '/auth',
   };
 }
 
@@ -124,7 +136,6 @@ export async function register(req, res, next) {
       // Two valid sub-cases:
       //  1. Already verified / active — silently do nothing (don't leak account existence).
       //  2. Still pending verification — re-issue the link (helps users who lost the email).
-      let devToken = null;
       if (existing.status === 'PENDING_VERIFICATION') {
         const token = generateRandomToken();
         existing.emailVerificationTokenHash = hashToken(token);
@@ -136,13 +147,6 @@ export async function register(req, res, next) {
           to: existing.email,
           name: existing.name,
           verifyUrl: buildVerifyUrl(token),
-        });
-        devToken = token;
-      }
-      if (!isProd && devToken) {
-        return res.json({
-          ...genericResponse,
-          data: { ...genericResponse.data, _devOnly_verificationToken: devToken },
         });
       }
       return res.json(genericResponse);
@@ -181,14 +185,7 @@ export async function register(req, res, next) {
       verifyUrl: buildVerifyUrl(verificationToken),
     });
 
-    const responseData = !isProd
-      ? {
-          ...genericResponse,
-          data: { ...genericResponse.data, _devOnly_verificationToken: verificationToken },
-        }
-      : genericResponse;
-
-    res.json(responseData);
+    res.json(genericResponse);
   } catch (error) {
     next(error);
   }
@@ -306,11 +303,7 @@ export async function resendVerification(req, res, next) {
       metadata: { email: user.email, ipAddress: req.ip },
     });
 
-    res.json(
-      !isProd
-        ? { ...genericResponse, data: { ...genericResponse.data, _devOnly_verificationToken: token } }
-        : genericResponse
-    );
+    res.json(genericResponse);
   } catch (error) {
     next(error);
   }
@@ -408,10 +401,7 @@ export async function login(req, res, next) {
     user.lastLoginAt = new Date();
     await user.save();
 
-
-    const accessToken = await generateAccessToken(user._id, user.workspaceId);
-    console.log("user id and workspace id-");
-    console.log(user._id,user.workspaceId);
+    const accessToken = await generateAccessToken(user._id, user.workspaceId, user.role);
     const refreshToken = await generateRefreshToken(user._id);
 
     await logAuditEvent({
@@ -454,7 +444,7 @@ export async function logout(req, res, next) {
     req.user.lastCredentialChangeAt = new Date();
     await req.user.save();
 
-    res.clearCookie('refreshToken', { path: '/' });
+    res.clearCookie('refreshToken', { path: '/auth' });
 
     await logAuditEvent({
       workspaceId: req.user.workspaceId,
@@ -510,7 +500,7 @@ export async function refresh(req, res, next) {
       );
     }
 
-    const newAccessToken = await generateAccessToken(user._id, user.workspaceId);
+    const newAccessToken = await generateAccessToken(user._id, user.workspaceId, user.role);
     const newRefreshToken = await generateRefreshToken(user._id);
 
     res.cookie('refreshToken', newRefreshToken, refreshCookieOptions());
@@ -559,11 +549,7 @@ export async function forgotPassword(req, res, next) {
       metadata: { ipAddress: req.ip },
     });
 
-    res.json(
-      !isProd
-        ? { ...genericResponse, data: { ...genericResponse.data, _devOnly_resetToken: token } }
-        : genericResponse
-    );
+    res.json(genericResponse);
   } catch (error) {
     next(error);
   }
@@ -723,7 +709,7 @@ export async function acceptInvite(req, res, next) {
       metadata: { email: invite.email, role: invite.role },
     });
 
-    const accessToken = await generateAccessToken(user._id, user.workspaceId);
+    const accessToken = await generateAccessToken(user._id, user.workspaceId, user.role);
     const refreshToken = await generateRefreshToken(user._id);
 
     res.cookie('refreshToken', refreshToken, refreshCookieOptions());
