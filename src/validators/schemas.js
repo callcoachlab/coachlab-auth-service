@@ -111,6 +111,8 @@ export const updateUserSchema = z
       .optional(),
     // Stable handle used by CSV ingestion to resolve external_agent_id rows.
     externalAgentId: z.string().min(1).max(64).nullable().optional(),
+    // MyOperator user UUID — needed for outbound calls via MyOperator OBD.
+    myoperatorUserId: z.string().min(1).max(64).nullable().optional(),
   })
   .refine(
     (d) =>
@@ -118,9 +120,11 @@ export const updateUserSchema = z
       d.teamIds !== undefined ||
       d.status !== undefined ||
       d.phone !== undefined ||
-      d.externalAgentId !== undefined,
+      d.externalAgentId !== undefined ||
+      d.myoperatorUserId !== undefined,
     {
-      message: 'At least one field (role, teamIds, status, phone, externalAgentId) must be provided',
+      message:
+        'At least one field (role, teamIds, status, phone, externalAgentId, myoperatorUserId) must be provided',
     }
   );
 

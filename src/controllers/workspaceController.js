@@ -7,13 +7,15 @@ import { generateAccessToken, generateRefreshToken } from '../utils/token.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 
+// Mirrors authController.refreshCookieOptions. Production uses SameSite=None
+// because the frontend is on a different registrable domain than the backend.
 function refreshCookieOptions() {
   return {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? 'strict' : 'lax',
+    sameSite: isProd ? 'none' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
+    path: '/auth',
   };
 }
 

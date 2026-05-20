@@ -81,6 +81,16 @@ const userSchema = new mongoose.Schema(
       },
     },
 
+    // MyOperator user UUID (their internal handle for the agent).
+    // Used by M1 to place outbound calls via MyOperator's OBD Type 1 User
+    // Dialer — MyOperator routes the call to this user account, which then
+    // calls the customer. Sourced from the MyOperator panel.
+    myoperatorUserId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
     // Password
     passwordHash: {
       type: String,

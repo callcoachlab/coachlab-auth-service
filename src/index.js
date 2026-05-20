@@ -27,6 +27,11 @@ import internalRoutes from './routes/internal.js';
 
 const app = express();
 
+// Trust Nginx reverse proxy so req.ip / req.secure / req.protocol
+// reflect the original client request, not the proxy. Required for
+// correct rate limiting and HTTPS-aware cookie behaviour.
+app.set('trust proxy', 1);
+
 // Security Middleware
 // Content Security Policy (CSP) - Explicit policy for frontend resources.
 // Swagger UI lives under /api-docs and needs inline scripts/styles, so we skip
@@ -56,7 +61,21 @@ app.use((req, res, next) => {
 });
 
 
-app.use(cors({ origin: config.corsOrigin, credentials: true }));
+// CORS for cross-domain frontend.
+// - origin: must be an explicit list (cannot be '*' when credentials=true).
+//           Set via CORS_ORIGIN env var (comma-separated, e.g. "https://app.xyz.com,https://www.xyz.com").
+// - credentials: true is required so the browser sends the refreshToken
+//                cookie on cross-origin requests to /auth/refresh.
+// - exposedHeaders: none needed unless the frontend reads custom response headers.
+app.use(
+  cors({
+    origin: config.corsOrigin,
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+    maxAge: 600, // 10 min — caches CORS preflight to reduce OPTIONS round trips
+  })
+);
 app.use(express.json());
 // MongoDB Injection Prevention - Sanitize inputs
 app.use(mongoSanitize({ onSanitize: ({ req, key }) => {

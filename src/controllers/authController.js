@@ -23,13 +23,25 @@ import {
 const isProd = process.env.NODE_ENV === 'production';
 
 // Cookie options for the long-lived refresh token.
+//
+// Production: frontend on a different registrable domain than backend
+//   (e.g. frontend on xyz.com, backend on thebotmate.com).
+//   SameSite=None + Secure is required for the browser to send the cookie
+//   on cross-site requests. Secure=true requires HTTPS.
+//
+// Development: localhost only. SameSite=Lax avoids breaking dev tooling
+//   that opens links from external pages.
+//
+// path: '/auth' — scopes the cookie to auth routes only. The refresh token
+//   is only ever read by /auth/refresh and /auth/logout; sending it on every
+//   API call (path: '/') widens the exposure surface unnecessarily.
 function refreshCookieOptions() {
   return {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? 'strict' : 'lax',
+    sameSite: isProd ? 'none' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
+    path: '/auth',
   };
 }
 
@@ -451,7 +463,7 @@ export async function logout(req, res, next) {
     req.user.lastCredentialChangeAt = new Date();
     await req.user.save();
 
-    res.clearCookie('refreshToken', { path: '/' });
+    res.clearCookie('refreshToken', { path: '/auth' });
 
     await logAuditEvent({
       workspaceId: req.user.workspaceId,

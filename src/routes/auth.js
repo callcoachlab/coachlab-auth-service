@@ -12,6 +12,7 @@ import {
 } from '../controllers/authController.js';
 import { validateRequest } from '../middleware/validation.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { csrfProtection } from '../middleware/csrf.js';
 import {
   loginLimiter,
   refreshLimiter,
@@ -69,7 +70,11 @@ router.post(
 
 router.post('/logout', authMiddleware, asyncHandler(logout));
 
-router.post('/refresh', refreshLimiter, asyncHandler(refresh));
+// /auth/refresh is the only route that authenticates via the refreshToken
+// cookie. Because the browser auto-sends cookies on cross-origin requests
+// (SameSite=None in production for cross-domain frontend/backend), CSRF
+// protection is required here.
+router.post('/refresh', refreshLimiter, csrfProtection, asyncHandler(refresh));
 
 // Password reset
 router.post(

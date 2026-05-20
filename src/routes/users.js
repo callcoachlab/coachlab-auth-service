@@ -7,12 +7,12 @@ import {
 } from '../controllers/userController.js';
 import { validateRequest, validateQuery } from '../middleware/validation.js';
 import { authMiddleware, requireRole, workspaceMiddleware } from '../middleware/auth.js';
-import { csrfProtection } from '../middleware/csrf.js';
 import { updateUserSchema, userFiltersSchema } from '../validators/schemas.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 const router = express.Router();
 
+// CSRF not applied: bearer-token auth only. See routes/teams.js for rationale.
 router.use(authMiddleware, workspaceMiddleware);
 
 // GET /users — Both ADMIN and MANAGER can list members
@@ -28,7 +28,6 @@ router.get(
 router.patch(
   '/:userId',
   requireRole('ADMIN', 'MANAGER'),
-  csrfProtection,
   validateRequest(updateUserSchema),
   asyncHandler(updateUser)
 );
@@ -37,7 +36,6 @@ router.patch(
 router.post(
   '/:userId/disable',
   requireRole('ADMIN', 'MANAGER'),
-  csrfProtection,
   asyncHandler(disableUser)
 );
 
@@ -45,7 +43,6 @@ router.post(
 router.post(
   '/:userId/enable',
   requireRole('ADMIN', 'MANAGER'),
-  csrfProtection,
   asyncHandler(enableUser)
 );
 

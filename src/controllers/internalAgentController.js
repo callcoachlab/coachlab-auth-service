@@ -21,14 +21,15 @@ import { asyncHandler } from '../middleware/errorHandler.js';
  */
 export const lookupAgents = asyncHandler(async (req, res) => {
   const workspaceId = req.workspaceId;
-  const { email, externalAgentId, name } = req.query;
+  const { email, externalAgentId, name, myoperatorUserId } = req.query;
 
-  if (!email && !externalAgentId && !name) {
+  if (!email && !externalAgentId && !name && !myoperatorUserId) {
     return res.status(400).json({
       success: false,
       error: {
         code: 'INVALID_PAYLOAD',
-        message: 'At least one of email, externalAgentId, or name is required',
+        message:
+          'At least one of email, externalAgentId, myoperatorUserId, or name is required',
       },
     });
   }
@@ -45,7 +46,7 @@ export const lookupAgents = asyncHandler(async (req, res) => {
 
   if (email) {
     agents = await User.find({ ...baseQuery, email: email.toLowerCase().trim() })
-      .select('_id email name role teamIds status');
+      .select('_id email name role teamIds status phone myoperatorUserId');
     if (agents.length) matchedBy = 'email';
   }
 
@@ -56,15 +57,23 @@ export const lookupAgents = asyncHandler(async (req, res) => {
         { externalAgentId: externalAgentId },
         { email: externalAgentId.toLowerCase() },
       ],
-    }).select('_id email name role teamIds status externalAgentId');
+    }).select('_id email name role teamIds status externalAgentId phone myoperatorUserId');
     if (agents.length) matchedBy = 'externalAgentId';
+  }
+
+  if (!agents.length && myoperatorUserId) {
+    agents = await User.find({
+      ...baseQuery,
+      myoperatorUserId,
+    }).select('_id email name role teamIds status myoperatorUserId phone');
+    if (agents.length) matchedBy = 'myoperatorUserId';
   }
 
   if (!agents.length && name) {
     agents = await User.find({
       ...baseQuery,
       name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' },
-    }).select('_id email name role teamIds status');
+    }).select('_id email name role teamIds status phone myoperatorUserId');
     if (agents.length) matchedBy = 'name';
   }
 

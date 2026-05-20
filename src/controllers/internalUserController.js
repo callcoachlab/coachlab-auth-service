@@ -24,7 +24,7 @@ export const getUserProfile = asyncHandler(async (req, res) => {
     _id: userId,
     workspaceId,
     deletedAt: null,
-  }).select('_id email name role teamIds workspaceId status phone externalAgentId');
+  }).select('_id email name role teamIds workspaceId status phone externalAgentId myoperatorUserId');
 
   if (!user) {
     return res.status(404).json({
@@ -55,6 +55,7 @@ export const getUserProfile = asyncHandler(async (req, res) => {
       status: user.status,
       phone: user.phone || null,
       externalAgentId: user.externalAgentId || null,
+      myoperatorUserId: user.myoperatorUserId || null,
     },
   });
 });
