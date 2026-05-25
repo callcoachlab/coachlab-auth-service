@@ -62,18 +62,35 @@ app.use((req, res, next) => {
 
 
 // CORS for cross-domain frontend.
-// - origin: must be an explicit list (cannot be '*' when credentials=true).
-//           Set via CORS_ORIGIN env var (comma-separated, e.g. "https://app.xyz.com,https://www.xyz.com").
 // - credentials: true is required so the browser sends the refreshToken
 //                cookie on cross-origin requests to /auth/refresh.
-// - exposedHeaders: none needed unless the frontend reads custom response headers.
+// - origin function: localhost (any port) is always allowed for local dev.
+//                    All other origins must be in the CORS_ORIGIN allowlist.
+const allowedOrigins = new Set(config.corsOrigin);
+
 app.use(
   cors({
-    origin: config.corsOrigin,
+    origin(origin, callback) {
+      // Non-browser requests (Postman, server-to-server) have no origin — allow.
+      if (!origin) return callback(null, true);
+
+      // Any localhost origin — always allow regardless of port.
+      // Covers Vite (5173), CRA (3000), any other local dev server.
+      if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      // Explicit production allowlist check.
+      if (allowedOrigins.has(origin)) {
+        return callback(null, true);
+      }
+
+      callback(new Error(`CORS: origin '${origin}' not allowed`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
-    maxAge: 600, // 10 min — caches CORS preflight to reduce OPTIONS round trips
+    maxAge: 600, // 10 min preflight cache
   })
 );
 app.use(express.json());

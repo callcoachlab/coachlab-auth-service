@@ -13,7 +13,6 @@ import {
 } from '../controllers/scorecardController.js';
 import { validateRequest } from '../middleware/validation.js';
 import { authMiddleware, requireRole, workspaceMiddleware } from '../middleware/auth.js';
-import { csrfProtection } from '../middleware/csrf.js';
 import { setupTokenMiddleware } from '../middleware/setupToken.js';
 import { setupWorkspaceSchema, updateWorkspaceSchema } from '../validators/schemas.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
@@ -38,7 +37,6 @@ router.patch(
   authMiddleware,
   workspaceMiddleware,
   requireRole('ADMIN'),
-  csrfProtection,
   validateRequest(updateWorkspaceSchema),
   asyncHandler(updateMyWorkspace)
 );
@@ -63,7 +61,6 @@ router.post(
   authMiddleware,
   workspaceMiddleware,
   requireRole('ADMIN', 'MANAGER'),
-  csrfProtection,
   asyncHandler(createScorecard)
 );
 router.patch(
@@ -71,7 +68,6 @@ router.patch(
   authMiddleware,
   workspaceMiddleware,
   requireRole('ADMIN', 'MANAGER'),
-  csrfProtection,
   asyncHandler(updateScorecard)
 );
 router.delete(
@@ -79,7 +75,6 @@ router.delete(
   authMiddleware,
   workspaceMiddleware,
   requireRole('ADMIN', 'MANAGER'),
-  csrfProtection,
   asyncHandler(deleteScorecard)
 );
 
