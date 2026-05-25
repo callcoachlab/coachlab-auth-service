@@ -1,5 +1,46 @@
 import mongoose from 'mongoose';
 
+// Embedded schema for a single criterion score from AI
+const criterionScoreSchema = new mongoose.Schema(
+  {
+    criteriaId: { type: String },
+    criteriaText: { type: String },
+    result: { type: String, enum: ['PASS', 'FAIL', 'NA', 'PARTIAL'] },
+    score: { type: Number },
+    maxScore: { type: Number },
+    confidence: { type: Number, min: 0, max: 1 },
+    isCriticalFail: { type: Boolean, default: false },
+    evidence: {
+      quote: { type: String },
+      startTime: { type: Number },
+      endTime: { type: Number },
+      speaker: { type: String },
+    },
+  },
+  { _id: false }
+);
+
+// Embedded schema for a scorecard section result
+const sectionResultSchema = new mongoose.Schema(
+  {
+    sectionName: { type: String },
+    sectionScore: { type: Number },
+    criteria: [criterionScoreSchema],
+  },
+  { _id: false }
+);
+
+// Embedded schema for a transcript segment
+const transcriptSegmentSchema = new mongoose.Schema(
+  {
+    speaker: { type: String }, // 'AGENT' | 'CUSTOMER'
+    start: { type: Number },
+    end: { type: Number },
+    text: { type: String },
+  },
+  { _id: false }
+);
+
 const callSchema = new mongoose.Schema(
   {
     workspaceId: {
@@ -20,12 +61,18 @@ const callSchema = new mongoose.Schema(
       ref: 'Contact',
       default: null,
     },
+    scorecardId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Scorecard',
+      default: null,
+    },
     direction: {
       type: String,
       enum: ['INBOUND', 'OUTBOUND'],
     },
     duration: {
-      type: Number, // in seconds
+      type: Number, // seconds — written by AI callback, not M1 upsert
+      default: null,
     },
     timestamp: {
       type: Date,
@@ -37,9 +84,13 @@ const callSchema = new mongoose.Schema(
     m1_instance_id: {
       type: String,
       default: null,
-      index: true, // For deduplication
+      index: true,
     },
     m1_job_id: {
+      type: String,
+      default: null,
+    },
+    m1_call_upload_id: {
       type: String,
       default: null,
     },
@@ -49,8 +100,33 @@ const callSchema = new mongoose.Schema(
     },
     call_state: {
       type: String,
-      enum: ['CREATED', 'INGESTED', 'EVALUATED', 'FAILED'],
+      enum: ['CREATED', 'INGESTED', 'EVALUATED', 'NEEDS_REVIEW', 'FAILED'],
       default: 'CREATED',
+    },
+    // Structured AI result — written once by /internal/calls/:callId/result
+    result: {
+      score: { type: Number, default: null },             // 0-100 total
+      breakdown: [sectionResultSchema],                    // per-section scores
+      transcript: {
+        language: { type: String },
+        text: { type: String },
+        segments: [transcriptSegmentSchema],
+      },
+      flags: [
+        {
+          type: { type: String },
+          message: { type: String },
+          startTime: { type: Number },
+          endTime: { type: Number },
+          _id: false,
+        },
+      ],
+      confidence: { type: Number, min: 0, max: 1, default: null },
+      needsReview: { type: Boolean, default: false },
+      failureReason: { type: String, default: null },
+      processingMs: { type: Number, default: null },
+      modelVersion: { type: String, default: null },
+      evaluatedAt: { type: Date, default: null },
     },
     metadata: {
       type: mongoose.Schema.Types.Mixed,
@@ -65,13 +141,16 @@ const callSchema = new mongoose.Schema(
 );
 
 // Indexes
-callSchema.index({ workspaceId: 1 });
-callSchema.index({ agentId: 1 });
-callSchema.index({ teamId: 1 });
-callSchema.index({ timestamp: 1 });
+callSchema.index({ workspaceId: 1, call_state: 1 });
+callSchema.index({ workspaceId: 1, agentId: 1, timestamp: -1 });
+callSchema.index({ workspaceId: 1, teamId: 1, timestamp: -1 });
+callSchema.index({ workspaceId: 1, scorecardId: 1 });
+callSchema.index({ workspaceId: 1, timestamp: -1 });
 callSchema.index({ deletedAt: 1 });
-callSchema.index({ m1_instance_id: 1, workspaceId: 1 }); // For M1 deduplication
+callSchema.index({ m1_instance_id: 1, workspaceId: 1 });
 callSchema.index({ contactId: 1 });
+callSchema.index({ 'result.score': 1 });          // filter/sort by score
+callSchema.index({ 'result.needsReview': 1 });    // QA queue queries
 
 // Query helper
 callSchema.query.active = function () {
@@ -122,10 +201,11 @@ callSchema.statics.createOrUpdateFromM1Upsert = async function (workspaceId, m1P
     });
 
     if (call) {
-      // Update existing call (idempotent behavior). Duration is left untouched
-      // here — it's set by the AI service result callback, not by M1 upsert.
+      // Update existing call (idempotent). Duration left untouched — AI writes it.
       call.contactId = m1Payload.contactId || call.contactId;
       call.agentId = m1Payload.agentId || call.agentId;
+      call.scorecardId = m1Payload.scorecard_id || call.scorecardId;
+      call.m1_call_upload_id = m1Payload.call_upload_id || call.m1_call_upload_id;
       call.external_agent_id = m1Payload.external_agent_id || call.external_agent_id;
       call.timestamp = m1Payload.call_datetime || call.timestamp;
       call.direction = m1Payload.call_type === 'inbound' ? 'INBOUND' : 'OUTBOUND';
@@ -137,16 +217,17 @@ callSchema.statics.createOrUpdateFromM1Upsert = async function (workspaceId, m1P
       return { call, created: false };
     }
 
-    // Create new call. Duration starts at 0; AI service updates it later.
+    // Create new call. Duration is null until AI callback writes it.
     call = await this.create({
       workspaceId,
       contactId: m1Payload.contactId,
       agentId: m1Payload.agentId,
+      scorecardId: m1Payload.scorecard_id || null,
       external_agent_id: m1Payload.external_agent_id,
       m1_instance_id: m1Payload.m1_instance_id,
       m1_job_id: m1Payload.m1_job_id,
+      m1_call_upload_id: m1Payload.call_upload_id || null,
       direction: m1Payload.call_type === 'inbound' ? 'INBOUND' : 'OUTBOUND',
-      duration: 0,
       timestamp: m1Payload.call_datetime,
       source: 'M1_INGESTION',
       call_state: 'INGESTED',

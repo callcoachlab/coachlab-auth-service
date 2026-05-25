@@ -43,8 +43,11 @@ export const config = {
   // Invite
   inviteTtlDays: parseInt(process.env.INVITE_TTL_DAYS || '7'),
 
-  // CORS
-  corsOrigin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000'],
+  // CORS — parsed into an array of allowed origins.
+  // Any origin on localhost (any port) is allowed automatically so frontend
+  // devs on Vite (5173), CRA (3000), or any local port never hit CORS errors.
+  // Production origins must be listed explicitly in CORS_ORIGIN.
+  corsOrigin: process.env.CORS_ORIGIN?.split(',').map(o => o.trim()) || ['http://localhost:3000'],
 
   // Logging
   logLevel: process.env.LOG_LEVEL || 'debug',

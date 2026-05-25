@@ -44,6 +44,7 @@ export const listScorecards = asyncHandler(async (req, res) => {
         callType: s.callType,
         isPublished: s.isPublished,
         updatedAt: s.updatedAt,
+        // AI service can use updatedAt to decide whether to re-fetch full settings
       })),
     },
   });
@@ -76,6 +77,10 @@ export const getScorecard = asyncHandler(async (req, res) => {
     });
   }
 
+  // `settings` carries the full scorecard definition: sections, criteria,
+  // weights, thresholds, critical fail rules. Structure is owned by the
+  // workspace admin who created the scorecard. AI service must treat it
+  // as the authoritative contract for scoring this call type.
   res.json({
     success: true,
     data: {
@@ -83,6 +88,7 @@ export const getScorecard = asyncHandler(async (req, res) => {
       name: scorecard.name,
       callType: scorecard.callType,
       isPublished: scorecard.isPublished,
+      version: scorecard.updatedAt.getTime(), // epoch ms — AI can use for cache invalidation
       settings: scorecard.settings,
       updatedAt: scorecard.updatedAt,
     },
